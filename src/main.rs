@@ -1,7 +1,16 @@
 use scraper::{Html, Selector};
-use std::{fs::File, io::Read};
+use serenity::{
+    client::Client,
+    framework::standard::{
+        macros::{command, group},
+        CommandResult, StandardFramework,
+    },
+    model::channel::Message,
+    prelude::*,
+};
+use std::{env, fs::File, io::Read};
 
-fn main() {
+fn get_followers() -> u64 {
     let user = {
         let mut file = File::open("./user.txt").unwrap();
         let mut buf = String::new();
@@ -19,12 +28,41 @@ fn main() {
     let meta = document.select(&selector).next().unwrap();
     let content = meta.value().attr("content").unwrap();
 
-    let followers = content
+    content
         .split_terminator(' ')
         .next()
         .unwrap()
         .parse::<u64>()
-        .unwrap();
+        .unwrap()
+}
 
-    println!("{}", followers);
+group!({
+    name: "general",
+    options: {},
+    commands: [followers],
+});
+
+struct Handler;
+
+impl EventHandler for Handler {}
+
+fn main() {
+    let mut client = Client::new(&env::var("DISCORD_TOKEN").expect("token"), Handler)
+        .expect("Error creating client");
+    client.with_framework(
+        StandardFramework::new()
+            .configure(|c| c.prefix("~"))
+            .group(&GENERAL_GROUP),
+    );
+
+    if let Err(why) = client.start() {
+        println!("An error occurred while running the client: {:?}", why);
+    }
+}
+
+#[command]
+fn followers(ctx: &mut Context, msg: &Message) -> CommandResult {
+    msg.reply(ctx, format!("{}", get_followers()))?;
+
+    Ok(())
 }
