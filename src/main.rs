@@ -6,12 +6,13 @@
 )]
 
 use chrono::Utc;
-use reqwest::Client;
+use reqwest::{Client, Result as ReqwestResult};
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use std::{
+    error::Error,
     fs::File,
-    io::{Read, Write},
+    io::{Read, Result as IoResult, Write},
     path::Path,
     thread,
     time::Duration,
@@ -35,11 +36,11 @@ impl Config {
     }
 
     /// Load the config.
-    pub fn load() -> Self {
-        let mut file = File::open("./config.toml").unwrap();
+    pub fn load() -> Result<Self, Box<dyn Error>> {
+        let mut file = File::open("./config.toml")?;
         let mut buf = String::new();
-        file.read_to_string(&mut buf).unwrap();
-        toml::de::from_str(&buf).unwrap()
+        file.read_to_string(&mut buf)?;
+        Ok(toml::de::from_str(&buf)?)
     }
 }
 
@@ -61,7 +62,10 @@ impl Scraper {
 
     /// Scrape the followers from the document.
     pub fn followers(&self) -> Option<u64> {
-        let document = self.document();
+        let document = match self.document() {
+            Ok(document) => document,
+            Err(_) => return None,
+        };
 
         let selector = Selector::parse(r#"meta[property="og:description"]"#).unwrap();
         let meta = match document.select(&selector).next() {
@@ -80,46 +84,40 @@ impl Scraper {
     }
 
     /// Run the scraper and output CSV to a file at the specified path.
-    pub fn run<P>(&self, path: P)
+    pub fn run<P>(&self, path: P) -> IoResult<()>
     where
         P: AsRef<Path>,
     {
         let duration = self.duration();
 
-        let mut file = File::create(path.as_ref()).unwrap();
+        let mut file = File::create(path.as_ref())?;
         loop {
             let followers = match self.followers() {
                 Some(followers) => followers,
                 None => continue,
             };
 
-            let _ = file
-                .write(format!("{},{}\n", Utc::now(), followers).as_bytes())
-                .unwrap();
-            file.flush().unwrap();
+            let _ = file.write(format!("{},{}\n", Utc::now(), followers).as_bytes())?;
+            file.flush()?;
 
             thread::sleep(duration);
         }
     }
 
-    fn document(&self) -> Html {
-        Html::parse_document(
-            &self
-                .client
-                .get(self.url().as_str())
-                .send()
-                .unwrap()
-                .text()
-                .unwrap(),
-        )
+    fn document(&self) -> ReqwestResult<Html> {
+        Ok(Html::parse_document(
+            &self.client.get(self.url().as_str()).send()?.text()?,
+        ))
     }
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
     let scraper = Scraper {
         client: Client::new(),
-        config: Config::load(),
+        config: Config::load()?,
     };
 
-    scraper.run("./followers.csv");
+    scraper.run("./followers.csv")?;
+
+    Ok(())
 }
