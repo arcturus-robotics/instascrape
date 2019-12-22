@@ -5,6 +5,9 @@
     missing_copy_implementations
 )]
 
+#[macro_use]
+extern crate log;
+
 use chrono::Utc;
 use reqwest::Client;
 use scraper::{Html, Selector};
@@ -37,10 +40,16 @@ impl Config {
 
     /// Load the config.
     pub fn load() -> Result<Self, Box<dyn Error>> {
+        info!("opening configuration file...");
         let mut file = File::open("./config.toml")?;
+        info!("reading configuration file...");
         let mut buf = String::new();
         file.read_to_string(&mut buf)?;
-        Ok(toml::de::from_str(&buf)?)
+
+        info!("deserializing configuration...");
+        let new = toml::de::from_str(&buf)?;
+
+        Ok(new)
     }
 }
 
@@ -64,22 +73,47 @@ impl Scraper {
     pub fn followers(&self) -> Option<u64> {
         let document = match self.document() {
             Ok(document) => document,
-            Err(_) => return None,
+            Err(e) => {
+                error!("failed to get document: {}", e);
+                return None;
+            }
         };
 
-        let selector = Selector::parse(r#"meta[property="og:description"]"#).unwrap();
+        let selector = match Selector::parse(r#"meta[property="og:description"]"#) {
+            Ok(selector) => selector,
+            Err(e) => {
+                error!("failed to parse selector: {:?}", e);
+                return None;
+            }
+        };
         let meta = match document.select(&selector).next() {
             Some(meta) => meta,
-            None => return None,
+            None => {
+                error!("failed to find the description `meta` tag.");
+                return None;
+            }
         };
-        let content = meta.value().attr("content").unwrap().trim();
+        let content = match meta.value().attr("content") {
+            Some(content) => content,
+            None => {
+                error!("failed to get the `content` attribute of the description `meta` tag.");
+                return None;
+            }
+        }
+        .trim();
 
         match content.find("Followers") {
             Some(index) => Some(match content[..index].trim().parse::<u64>() {
                 Ok(followers) => followers,
-                Err(_) => return None,
+                Err(_) => {
+                    error!("failed to parse follows.");
+                    return None;
+                }
             }),
-            None => None,
+            None => {
+                error!("failed to find follows.");
+                None
+            }
         }
     }
 
@@ -112,11 +146,15 @@ impl Scraper {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    env_logger::init();
+
+    info!("initializing scraper...");
     let scraper = Scraper {
         client: Client::new(),
         config: Config::load()?,
     };
 
+    info!("running scraper...");
     scraper.run("./followers.csv")?;
 
     Ok(())
