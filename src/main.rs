@@ -6,13 +6,13 @@
 )]
 
 use chrono::Utc;
-use reqwest::{Client, Result as ReqwestResult};
+use reqwest::Client;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use std::{
     error::Error,
-    fs::File,
-    io::{Read, Result as IoResult, Write},
+    fs::{File, OpenOptions},
+    io::{self, Read, Write},
     path::Path,
     thread,
     time::Duration,
@@ -84,13 +84,13 @@ impl Scraper {
     }
 
     /// Run the scraper and output CSV to a file at the specified path.
-    pub fn run<P>(&self, path: P) -> IoResult<()>
+    pub fn run<P>(&self, path: P) -> io::Result<()>
     where
         P: AsRef<Path>,
     {
         let duration = self.duration();
 
-        let mut file = File::create(path.as_ref())?;
+        let mut file = OpenOptions::new().append(true).open(path.as_ref())?;
         loop {
             let followers = match self.followers() {
                 Some(followers) => followers,
@@ -104,7 +104,7 @@ impl Scraper {
         }
     }
 
-    fn document(&self) -> ReqwestResult<Html> {
+    fn document(&self) -> reqwest::Result<Html> {
         Ok(Html::parse_document(
             &self.client.get(self.url().as_str()).send()?.text()?,
         ))
