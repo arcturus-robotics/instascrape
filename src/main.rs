@@ -14,145 +14,215 @@ use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use std::{
     error::Error,
-    fs::{File, OpenOptions},
-    io::{self, Read, Write},
+    fmt::{self, Display, Formatter},
+    fs::OpenOptions,
+    io::{self, Write},
+    num::ParseIntError,
     path::Path,
     thread,
     time::Duration,
 };
 
-/// The scraper's configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Config {
-    /// The user to fetch data from.
-    pub user: String,
-    /// The update interval in seconds.
-    pub interval: u64,
+pub mod config;
+
+use self::config::{Config, ConfigError};
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Default, Serialize, Deserialize)]
+pub struct Data {
+    pub followers: u64,
+    pub following: u64,
+    pub posts: u64,
 }
 
-impl Config {
-    pub fn new(user: &str, interval: u64) -> Self {
-        Self {
-            user: String::from(user),
-            interval,
-        }
-    }
+#[derive(Debug)]
+pub enum InstascrapeError {
+    Io(io::Error),
+    Reqwest(reqwest::Error),
+    ParseInt(ParseIntError),
+    Config(ConfigError),
+}
 
-    /// Load the config.
-    pub fn load() -> Result<Self, Box<dyn Error>> {
-        info!("opening configuration file...");
-        let mut file = File::open("./config.toml")?;
-        info!("reading configuration file...");
-        let mut buf = String::new();
-        file.read_to_string(&mut buf)?;
-
-        info!("deserializing configuration...");
-        let new = toml::de::from_str(&buf)?;
-
-        Ok(new)
+impl From<io::Error> for InstascrapeError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
     }
 }
+
+impl From<reqwest::Error> for InstascrapeError {
+    fn from(error: reqwest::Error) -> Self {
+        Self::Reqwest(error)
+    }
+}
+
+impl From<ParseIntError> for InstascrapeError {
+    fn from(error: ParseIntError) -> Self {
+        Self::ParseInt(error)
+    }
+}
+
+impl From<ConfigError> for InstascrapeError {
+    fn from(error: ConfigError) -> Self {
+        Self::Config(error)
+    }
+}
+
+impl Display for InstascrapeError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.source().unwrap())
+    }
+}
+
+impl Error for InstascrapeError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(match self {
+            Self::Io(error) => error,
+            Self::Reqwest(error) => error,
+            Self::ParseInt(error) => error,
+            Self::Config(error) => error,
+        })
+    }
+}
+
+pub type InstascrapeResult<T> = Result<T, InstascrapeError>;
 
 /// An Instagram scraper.
 #[derive(Debug, Clone)]
-pub struct Scraper {
-    pub client: Client,
-    pub config: Config,
+pub struct Instascrape {
+    client: Client,
+
+    url: String,
+    interval: Duration,
 }
 
-impl Scraper {
-    pub fn url(&self) -> String {
-        format!("https://www.instagram.com/{}", self.config.user)
+impl Instascrape {
+    pub fn url(&self) -> &str {
+        &self.url
     }
 
-    pub fn duration(&self) -> Duration {
-        Duration::from_secs(self.config.interval)
+    pub fn interval(&self) -> Duration {
+        self.interval
     }
 
-    /// Scrape the followers from the document.
-    pub fn followers(&self) -> Option<u64> {
-        let document = match self.document() {
-            Ok(document) => document,
-            Err(e) => {
-                error!("failed to get document: {}", e);
-                return None;
-            }
-        };
-
-        let selector = match Selector::parse(r#"meta[property="og:description"]"#) {
-            Ok(selector) => selector,
-            Err(e) => {
-                error!("failed to parse selector: {:?}", e);
-                return None;
-            }
-        };
+    /// Scrape data from the URL.
+    pub fn scrape(&self) -> InstascrapeResult<Data> {
+        let document = self.document()?;
+        let selector = Selector::parse(r#"meta[property="og:description"]"#).unwrap();
         let meta = match document.select(&selector).next() {
             Some(meta) => meta,
             None => {
-                error!("failed to find the description `meta` tag.");
-                return None;
+                return Err(InstascrapeError::Io(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "failed to find the description `meta` tag",
+                )));
             }
         };
         let content = match meta.value().attr("content") {
             Some(content) => content,
             None => {
-                error!("failed to get the `content` attribute of the description `meta` tag.");
-                return None;
+                return Err(InstascrapeError::Io(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "failed to get the `content` attribute of the description `meta` tag",
+                )));
             }
         }
         .trim();
 
-        match content.find("Followers") {
-            Some(index) => Some(match content[..index].trim().parse::<u64>() {
-                Ok(followers) => followers,
-                Err(_) => {
-                    error!("failed to parse follows.");
-                    return None;
-                }
-            }),
-            None => {
-                error!("failed to find follows.");
-                None
+        // 114 Followers, 128 Following, 29 Posts - See Instagram photos and videos from Arcturus Robotics (@arcturusrobotics)
+
+        let src: Vec<u64> = match content.find('-') {
+            Some(index) => {
+                let src: Result<_, _> = content[..index]
+                    .split_terminator(',')
+                    .map(|s| {
+                        s.trim()
+                            .split_terminator(' ')
+                            .next()
+                            .unwrap()
+                            .parse::<u64>()
+                    })
+                    .collect();
+                src?
             }
-        }
+            None => {
+                return Err(InstascrapeError::Io(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "failed to find data source",
+                )));
+            }
+        };
+
+        Ok(Data {
+            followers: src[0],
+            following: src[1],
+            posts: src[2],
+        })
     }
 
     /// Run the scraper and output CSV to a file at the specified path.
-    pub fn run<P>(&self, path: P) -> io::Result<()>
+    pub fn run<P>(&self, path: P) -> InstascrapeResult<()>
     where
         P: AsRef<Path>,
     {
-        let duration = self.duration();
-
         let mut file = OpenOptions::new().append(true).open(path.as_ref())?;
         loop {
-            let followers = match self.followers() {
-                Some(followers) => followers,
-                None => continue,
-            };
+            let data = self.scrape()?;
 
-            let _ = file.write(format!("{},{}\n", Utc::now(), followers).as_bytes())?;
+            let _ = file.write(format!("{},{}\n", Utc::now(), data.followers).as_bytes())?;
             file.flush()?;
 
-            thread::sleep(duration);
+            thread::sleep(self.interval);
         }
     }
 
-    fn document(&self) -> reqwest::Result<Html> {
+    fn document(&self) -> InstascrapeResult<Html> {
         Ok(Html::parse_document(
-            &self.client.get(self.url().as_str()).send()?.text()?,
+            &self.client.get(&self.url).send()?.text()?,
         ))
     }
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+/// Helper for creating a scraper.
+#[derive(Debug, Clone, Default)]
+pub struct InstascrapeBuilder {
+    client: Option<Client>,
+    config: Option<Config>,
+}
+
+impl InstascrapeBuilder {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn client(&mut self, client: Client) -> &mut Self {
+        self.client = Some(client);
+        self
+    }
+
+    pub fn config(&mut self, config: Config) -> &mut Self {
+        self.config = Some(config);
+        self
+    }
+
+    pub fn build(&self) -> Instascrape {
+        let client = self.client.clone().unwrap();
+        let config = self.config.clone().unwrap();
+
+        Instascrape {
+            client,
+            url: format!("https://www.instagram.com/{}/", config.user),
+            interval: Duration::from_secs(config.interval),
+        }
+    }
+}
+
+fn main() -> InstascrapeResult<()> {
     env_logger::init();
 
     info!("initializing scraper...");
-    let scraper = Scraper {
-        client: Client::new(),
-        config: Config::load()?,
-    };
+    let scraper = InstascrapeBuilder::new()
+        .client(Client::new())
+        .config(Config::load("./config.toml")?)
+        .build();
 
     info!("running scraper...");
     scraper.run("./followers.csv")?;
