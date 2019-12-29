@@ -1,3 +1,5 @@
+//! An Instagram scraper created to help keep track of our Instagram followers.
+
 #![deny(
     rust_2018_idioms,
     clippy::all,
@@ -27,6 +29,7 @@ pub mod config;
 
 use self::config::{Config, ConfigError};
 
+/// Scraped Instagram data.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default, Serialize, Deserialize)]
 pub struct Data {
     pub followers: u64,
@@ -34,6 +37,7 @@ pub struct Data {
     pub posts: u64,
 }
 
+/// Any error that may occur while initializing or running the scraper.
 #[derive(Debug)]
 pub enum InstascrapeError {
     Io(io::Error),
@@ -95,18 +99,25 @@ pub struct Instascrape {
 }
 
 impl Instascrape {
+    /// Get the URL.
     pub fn url(&self) -> &str {
         &self.url
     }
 
+    /// Get the loop interval.
     pub fn interval(&self) -> Duration {
         self.interval
     }
 
     /// Scrape data from the URL.
     pub fn scrape(&self) -> InstascrapeResult<Data> {
+        // Scrape the document.
         let document = self.document()?;
+
+        // Create a selector to find the description `meta` tag.
         let selector = Selector::parse(r#"meta[property="og:description"]"#).unwrap();
+
+        // Find the description `meta` tag with the selector.
         let meta = match document.select(&selector).next() {
             Some(meta) => meta,
             None => {
@@ -116,6 +127,9 @@ impl Instascrape {
                 )));
             }
         };
+
+        // Get the content of the description `meta` tag. It will look something like
+        // `100 Followers, 50 Following, 30 Posts - See Instagram photos and videos from Foo Bar (@foobar)`.
         let content = match meta.value().attr("content") {
             Some(content) => content,
             None => {
@@ -127,9 +141,10 @@ impl Instascrape {
         }
         .trim();
 
-        // 114 Followers, 128 Following, 29 Posts - See Instagram photos and videos from Arcturus Robotics (@arcturusrobotics)
-
+        // Strip off the end half of the content string and
+        // parse the followers, following, and posts from the result.
         let src: Vec<u64> = match content.find('-') {
+            // If the split is found, then strip, split, and parse.
             Some(index) => {
                 let src: Result<_, _> = content[..index]
                     .split_terminator(',')
@@ -143,6 +158,7 @@ impl Instascrape {
                     .collect();
                 src?
             }
+            // Otherwise, error.
             None => {
                 return Err(InstascrapeError::Io(io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -151,6 +167,7 @@ impl Instascrape {
             }
         };
 
+        // Construct `Data` out of these numbers.
         Ok(Data {
             followers: src[0],
             following: src[1],
@@ -163,21 +180,36 @@ impl Instascrape {
     where
         P: AsRef<Path>,
     {
+        // Open the file in append mode. We don't want to overwrite the data that's already there!
         let mut file = OpenOptions::new().append(true).open(path.as_ref())?;
+
         loop {
-            let data = self.scrape()?;
+            // Scrape the data.
+            match self.scrape() {
+                // If we're successful, write the data with a timestamp to the file.
+                Ok(data) => {
+                    let _ =
+                        file.write(format!("{},{}\n", Utc::now(), data.followers).as_bytes())?;
+                    file.flush()?;
+                }
+                // If not, log the error and don't do anything.
+                Err(err) => error!("{}", err),
+            };
 
-            let _ = file.write(format!("{},{}\n", Utc::now(), data.followers).as_bytes())?;
-            file.flush()?;
-
-            thread::sleep(self.interval);
+            self.sleep();
         }
     }
 
+    /// Scrape and parse the document at the URL.
     fn document(&self) -> InstascrapeResult<Html> {
         Ok(Html::parse_document(
             &self.client.get(&self.url).send()?.text()?,
         ))
+    }
+
+    /// Sleep for the duration of the interval.
+    fn sleep(&self) {
+        thread::sleep(self.interval);
     }
 }
 
@@ -189,20 +221,24 @@ pub struct InstascrapeBuilder {
 }
 
 impl InstascrapeBuilder {
+    /// Initialize a new builder.
     pub fn new() -> Self {
         Default::default()
     }
 
+    /// Add a client to the scraper.
     pub fn client(&mut self, client: Client) -> &mut Self {
         self.client = Some(client);
         self
     }
 
+    /// Add configuration to the scraper.
     pub fn config(&mut self, config: Config) -> &mut Self {
         self.config = Some(config);
         self
     }
 
+    /// Build the scraper.
     pub fn build(&self) -> Instascrape {
         let client = self.client.clone().unwrap();
         let config = self.config.clone().unwrap();
@@ -216,14 +252,17 @@ impl InstascrapeBuilder {
 }
 
 fn main() -> InstascrapeResult<()> {
+    // Initialize the logger.
     env_logger::init();
 
+    // Build the scraper.
     info!("initializing scraper...");
     let scraper = InstascrapeBuilder::new()
         .client(Client::new())
         .config(Config::load("./config.toml")?)
         .build();
 
+    // Run the scraper.
     info!("running scraper...");
     scraper.run("./followers.csv")?;
 

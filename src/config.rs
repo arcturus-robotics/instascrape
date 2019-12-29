@@ -7,6 +7,7 @@ use std::{
     path::Path,
 };
 
+// Any error that may occur while loading, saving, serializing, or deserializing configuration.
 #[derive(Debug)]
 pub enum ConfigError {
     Io(io::Error),
@@ -60,7 +61,7 @@ pub struct Config {
 }
 
 impl Config {
-    /// Load the config.
+    /// Load configuration from a file.
     pub fn load<P>(path: P) -> ConfigResult<Self>
     where
         P: AsRef<Path>,
@@ -80,6 +81,7 @@ impl Config {
         Ok(de)
     }
 
+    /// Save configuration to a file.
     pub fn save<P>(&self, path: P) -> ConfigResult<()>
     where
         P: AsRef<Path>,
