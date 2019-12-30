@@ -189,11 +189,11 @@ impl Instascrape {
                 // If we're successful, write the data with a timestamp to the file.
                 Ok(data) => {
                     // "Serialize" the data to be written to the file and log it.
-                    let ser = format!("{},{}\n", Utc::now(), data.followers);
+                    let ser = format!("{},{}", Utc::now(), data.followers);
                     info!("{}", ser);
 
                     // Write to the file.
-                    let _ = file.write(ser.as_bytes())?;
+                    let _ = file.write(format!("{}\n", ser).as_bytes())?;
                     file.flush()?;
                 }
                 // If not, log the error and don't do anything.
