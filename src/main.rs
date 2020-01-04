@@ -11,7 +11,7 @@
 extern crate log;
 
 use chrono::Utc;
-use reqwest::Client;
+use reqwest::blocking::Client;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -188,7 +188,7 @@ impl Instascrape {
             match self.scrape() {
                 // If we're successful, write the data with a timestamp to the file.
                 Ok(data) => {
-                    // "Serialize" the data to be written to the file and log it.
+                    // Serialize the data to be written to the file and log it.
                     let ser = format!("{},{}", Utc::now(), data.followers);
                     info!("{}", ser);
 
@@ -260,14 +260,14 @@ fn main() -> InstascrapeResult<()> {
     env_logger::init();
 
     // Build the scraper.
-    info!("initializing scraper...");
+    info!("Initializing scraper...");
     let scraper = InstascrapeBuilder::new()
         .client(Client::new())
         .config(Config::load("./config.toml")?)
         .build();
 
     // Run the scraper.
-    info!("running scraper...");
+    info!("Running scraper...");
     scraper.run("./followers.csv")?;
 
     Ok(())
