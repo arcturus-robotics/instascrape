@@ -7,15 +7,14 @@
     missing_copy_implementations
 )]
 
-#[macro_use]
-extern crate log;
-
 use self::error::{DocumentError, OutputError, ParseError};
 use chrono::Utc;
-use reqwest::blocking::Client;
+use log::{error, info};
+use reqwest::Client;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
-use std::{fs::OpenOptions, io::Write, path::Path, thread, time::Duration};
+use std::{path::Path, time::Duration};
+use tokio::{fs::OpenOptions, prelude::*, time};
 
 pub mod config;
 pub mod error;
@@ -35,14 +34,14 @@ pub struct Data {
 
 /// An Instagram scraper.
 #[derive(Debug, Clone)]
-pub struct Instascrape {
+pub struct InstagramScraper {
     client: Client,
 
     url: String,
     interval: Duration,
 }
 
-impl Instascrape {
+impl InstagramScraper {
     /// Get the URL.
     pub fn url(&self) -> &str {
         &self.url
@@ -54,9 +53,9 @@ impl Instascrape {
     }
 
     /// Scrape data from the URL.
-    pub fn scrape(&self) -> Result<Data> {
+    pub async fn scrape(&self) -> Result<Data> {
         // Scrape the document.
-        let document = self.document()?;
+        let document = self.document().await?;
 
         // Create a selector to find the description `meta` tag.
         let selector = Selector::parse(r#"meta[property="og:description"]"#)
@@ -113,7 +112,7 @@ impl Instascrape {
     }
 
     /// Run the scraper and output CSV to a file at the specified path.
-    pub fn run<P>(&self, path: P) -> Result<()>
+    pub async fn run<P>(&self, path: P) -> Result<()>
     where
         P: AsRef<Path>,
     {
@@ -121,11 +120,12 @@ impl Instascrape {
         let mut file = OpenOptions::new()
             .append(true)
             .open(path.as_ref())
+            .await
             .map_err(|_| Error::Output(OutputError::OpeningFailed))?;
 
         loop {
             // Scrape the data.
-            match self.scrape() {
+            match self.scrape().await {
                 // If we're successful, write the data with a timestamp to the file.
                 Ok(data) => {
                     // Serialize the data to be written to the file and log it.
@@ -135,45 +135,49 @@ impl Instascrape {
                     // Write to the file.
                     let _ = file
                         .write(format!("{}\n", ser).as_bytes())
+                        .await
                         .map_err(|_| Error::Output(OutputError::WritingFailed))?;
                     file.flush()
+                        .await
                         .map_err(|_| Error::Output(OutputError::FlushingFailed))?;
                 }
                 // If not, log the error and don't do anything.
                 Err(err) => error!("{}", err),
             };
 
-            self.sleep();
+            self.sleep().await;
         }
     }
 
     /// Scrape and parse the document at the URL.
-    fn document(&self) -> Result<Html> {
+    async fn document(&self) -> Result<Html> {
         Ok(Html::parse_document(
             &self
                 .client
                 .get(&self.url)
                 .send()
+                .await
                 .map_err(|_| Error::Document(DocumentError::RequestingFailed))?
                 .text()
+                .await
                 .map_err(|_| Error::Document(DocumentError::ParsingFailed))?,
         ))
     }
 
     /// Sleep for the duration of the interval.
-    fn sleep(&self) {
-        thread::sleep(self.interval);
+    async fn sleep(&self) {
+        time::delay_for(self.interval).await;
     }
 }
 
 /// Helper for creating a scraper.
 #[derive(Debug, Clone, Default)]
-pub struct InstascrapeBuilder {
+pub struct InstagramScraperBuilder {
     client: Option<Client>,
     config: Option<Config>,
 }
 
-impl InstascrapeBuilder {
+impl InstagramScraperBuilder {
     /// Initialize a new builder.
     pub fn new() -> Self {
         Default::default()
@@ -192,11 +196,11 @@ impl InstascrapeBuilder {
     }
 
     /// Build the scraper.
-    pub fn build(&self) -> Instascrape {
+    pub fn build(&self) -> InstagramScraper {
         let client = self.client.clone().unwrap();
         let config = self.config.clone().unwrap();
 
-        Instascrape {
+        InstagramScraper {
             client,
             url: format!("https://www.instagram.com/{}/", config.user),
             interval: Duration::from_secs(config.interval),
@@ -204,20 +208,21 @@ impl InstascrapeBuilder {
     }
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     // Initialize the logger.
     env_logger::init();
 
     // Build the scraper.
     info!("initializing scraper...");
-    let scraper = InstascrapeBuilder::new()
+    let scraper = InstagramScraperBuilder::new()
         .client(Client::new())
         .config(Config::load("./config.toml")?)
         .build();
 
     // Run the scraper.
     info!("running scraper...");
-    scraper.run("./followers.csv")?;
+    scraper.run("./followers.csv").await?;
 
     Ok(())
 }
