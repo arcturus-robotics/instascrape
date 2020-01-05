@@ -10,24 +10,20 @@
 #[macro_use]
 extern crate log;
 
+use self::error::{DocumentError, OutputError, ParseError};
 use chrono::Utc;
 use reqwest::blocking::Client;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
-use std::{
-    error::Error,
-    fmt::{self, Display, Formatter},
-    fs::OpenOptions,
-    io::{self, Write},
-    num::ParseIntError,
-    path::Path,
-    thread,
-    time::Duration,
-};
+use std::{fs::OpenOptions, io::Write, path::Path, thread, time::Duration};
 
 pub mod config;
+pub mod error;
 
-use self::config::{Config, ConfigError};
+pub use self::{
+    config::Config,
+    error::{Error, Result},
+};
 
 /// Scraped Instagram data.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default, Serialize, Deserialize)]
@@ -36,58 +32,6 @@ pub struct Data {
     pub following: u64,
     pub posts: u64,
 }
-
-/// Any error that may occur while initializing or running the scraper.
-#[derive(Debug)]
-pub enum InstascrapeError {
-    Io(io::Error),
-    Reqwest(reqwest::Error),
-    ParseInt(ParseIntError),
-    Config(ConfigError),
-}
-
-impl From<io::Error> for InstascrapeError {
-    fn from(error: io::Error) -> Self {
-        Self::Io(error)
-    }
-}
-
-impl From<reqwest::Error> for InstascrapeError {
-    fn from(error: reqwest::Error) -> Self {
-        Self::Reqwest(error)
-    }
-}
-
-impl From<ParseIntError> for InstascrapeError {
-    fn from(error: ParseIntError) -> Self {
-        Self::ParseInt(error)
-    }
-}
-
-impl From<ConfigError> for InstascrapeError {
-    fn from(error: ConfigError) -> Self {
-        Self::Config(error)
-    }
-}
-
-impl Display for InstascrapeError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.source().unwrap())
-    }
-}
-
-impl Error for InstascrapeError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(match self {
-            Self::Io(error) => error,
-            Self::Reqwest(error) => error,
-            Self::ParseInt(error) => error,
-            Self::Config(error) => error,
-        })
-    }
-}
-
-pub type InstascrapeResult<T> = Result<T, InstascrapeError>;
 
 /// An Instagram scraper.
 #[derive(Debug, Clone)]
@@ -110,21 +54,19 @@ impl Instascrape {
     }
 
     /// Scrape data from the URL.
-    pub fn scrape(&self) -> InstascrapeResult<Data> {
+    pub fn scrape(&self) -> Result<Data> {
         // Scrape the document.
         let document = self.document()?;
 
         // Create a selector to find the description `meta` tag.
-        let selector = Selector::parse(r#"meta[property="og:description"]"#).unwrap();
+        let selector = Selector::parse(r#"meta[property="og:description"]"#)
+            .map_err(|_| Error::Parse(ParseError::SelectorParsingFailed))?;
 
         // Find the description `meta` tag with the selector.
         let meta = match document.select(&selector).next() {
             Some(meta) => meta,
             None => {
-                return Err(InstascrapeError::Io(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "failed to find the description `meta` tag",
-                )));
+                return Err(Error::Parse(ParseError::DescriptionMetaTagNotFound));
             }
         };
 
@@ -133,10 +75,7 @@ impl Instascrape {
         let content = match meta.value().attr("content") {
             Some(content) => content,
             None => {
-                return Err(InstascrapeError::Io(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "failed to get the `content` attribute of the description `meta` tag",
-                )));
+                return Err(Error::Parse(ParseError::ContentAttributeNotFound));
             }
         }
         .trim();
@@ -146,7 +85,7 @@ impl Instascrape {
         let src: Vec<u64> = match content.find('-') {
             // If the split is found, then strip, split, and parse.
             Some(index) => {
-                let src: Result<_, _> = content[..index]
+                let src: Result<_> = content[..index]
                     .split_terminator(',')
                     .map(|s| {
                         s.trim()
@@ -154,16 +93,14 @@ impl Instascrape {
                             .next()
                             .unwrap()
                             .parse::<u64>()
+                            .map_err(|_| Error::Parse(ParseError::DataParsingFailed))
                     })
                     .collect();
                 src?
             }
             // Otherwise, error.
             None => {
-                return Err(InstascrapeError::Io(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "failed to find data source",
-                )));
+                return Err(Error::Parse(ParseError::DataSourceNotFound));
             }
         };
 
@@ -176,12 +113,15 @@ impl Instascrape {
     }
 
     /// Run the scraper and output CSV to a file at the specified path.
-    pub fn run<P>(&self, path: P) -> InstascrapeResult<()>
+    pub fn run<P>(&self, path: P) -> Result<()>
     where
         P: AsRef<Path>,
     {
         // Open the file in append mode. We don't want to overwrite the data that's already there!
-        let mut file = OpenOptions::new().append(true).open(path.as_ref())?;
+        let mut file = OpenOptions::new()
+            .append(true)
+            .open(path.as_ref())
+            .map_err(|_| Error::Output(OutputError::OpeningFailed))?;
 
         loop {
             // Scrape the data.
@@ -193,8 +133,11 @@ impl Instascrape {
                     info!("{}", ser);
 
                     // Write to the file.
-                    let _ = file.write(format!("{}\n", ser).as_bytes())?;
-                    file.flush()?;
+                    let _ = file
+                        .write(format!("{}\n", ser).as_bytes())
+                        .map_err(|_| Error::Output(OutputError::WritingFailed))?;
+                    file.flush()
+                        .map_err(|_| Error::Output(OutputError::FlushingFailed))?;
                 }
                 // If not, log the error and don't do anything.
                 Err(err) => error!("{}", err),
@@ -205,9 +148,15 @@ impl Instascrape {
     }
 
     /// Scrape and parse the document at the URL.
-    fn document(&self) -> InstascrapeResult<Html> {
+    fn document(&self) -> Result<Html> {
         Ok(Html::parse_document(
-            &self.client.get(&self.url).send()?.text()?,
+            &self
+                .client
+                .get(&self.url)
+                .send()
+                .map_err(|_| Error::Document(DocumentError::RequestingFailed))?
+                .text()
+                .map_err(|_| Error::Document(DocumentError::ParsingFailed))?,
         ))
     }
 
@@ -255,19 +204,19 @@ impl InstascrapeBuilder {
     }
 }
 
-fn main() -> InstascrapeResult<()> {
+fn main() -> Result<()> {
     // Initialize the logger.
     env_logger::init();
 
     // Build the scraper.
-    info!("Initializing scraper...");
+    info!("initializing scraper...");
     let scraper = InstascrapeBuilder::new()
         .client(Client::new())
         .config(Config::load("./config.toml")?)
         .build();
 
     // Run the scraper.
-    info!("Running scraper...");
+    info!("running scraper...");
     scraper.run("./followers.csv")?;
 
     Ok(())

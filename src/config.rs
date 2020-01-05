@@ -1,60 +1,15 @@
+use crate::error::{ConfigError, Error, Result};
 use serde::{Deserialize, Serialize};
 use std::{
-    error::Error,
-    fmt::{self, Display, Formatter},
     fs::File,
-    io::{self, Read, Write},
+    io::{Read, Write},
     path::Path,
 };
-
-// Any error that may occur while loading, saving, serializing, or deserializing configuration.
-#[derive(Debug)]
-pub enum ConfigError {
-    Io(io::Error),
-    Ser(toml::ser::Error),
-    De(toml::de::Error),
-}
-
-impl From<io::Error> for ConfigError {
-    fn from(error: io::Error) -> Self {
-        Self::Io(error)
-    }
-}
-
-impl From<toml::ser::Error> for ConfigError {
-    fn from(error: toml::ser::Error) -> Self {
-        Self::Ser(error)
-    }
-}
-
-impl From<toml::de::Error> for ConfigError {
-    fn from(error: toml::de::Error) -> Self {
-        Self::De(error)
-    }
-}
-
-impl Display for ConfigError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.source().unwrap())
-    }
-}
-
-impl Error for ConfigError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(match self {
-            Self::Io(error) => error,
-            Self::Ser(error) => error,
-            Self::De(error) => error,
-        })
-    }
-}
-
-pub type ConfigResult<T> = Result<T, ConfigError>;
 
 /// The scraper's configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    /// The user to fetch data from.
+    /// The user to scrape data off of.
     pub user: String,
     /// The update interval in seconds.
     pub interval: u64,
@@ -62,40 +17,46 @@ pub struct Config {
 
 impl Config {
     /// Load configuration from a file.
-    pub fn load<P>(path: P) -> ConfigResult<Self>
+    pub fn load<P>(path: P) -> Result<Self>
     where
         P: AsRef<Path>,
     {
         info!("loading configuration...");
 
         debug!("opening configuration file...");
-        let mut file = File::open(path.as_ref())?;
+        let mut file =
+            File::open(path.as_ref()).map_err(|_| Error::Config(ConfigError::OpeningFailed))?;
 
         debug!("reading configuration file...");
         let mut buf = String::new();
-        file.read_to_string(&mut buf)?;
+        file.read_to_string(&mut buf)
+            .map_err(|_| Error::Config(ConfigError::ReadingFailed))?;
 
         debug!("deserializing configuration...");
-        let de = toml::from_str(&buf)?;
+        let de =
+            toml::from_str(&buf).map_err(|_| Error::Config(ConfigError::DeserializationFailed))?;
 
         Ok(de)
     }
 
     /// Save configuration to a file.
-    pub fn save<P>(&self, path: P) -> ConfigResult<()>
+    pub fn save<P>(&self, path: P) -> Result<()>
     where
         P: AsRef<Path>,
     {
         info!("saving configuration...");
 
         debug!("serializing configuration...");
-        let ser = toml::to_string_pretty(self)?;
+        let ser = toml::to_string_pretty(self)
+            .map_err(|_| Error::Config(ConfigError::SerializationFailed))?;
 
         debug!("creating configuration file...");
-        let mut file = File::create(path.as_ref())?;
+        let mut file =
+            File::create(path.as_ref()).map_err(|_| Error::Config(ConfigError::CreationFailed))?;
 
         debug!("writing configuration file...");
-        file.write_all(ser.as_bytes())?;
+        file.write_all(ser.as_bytes())
+            .map_err(|_| Error::Config(ConfigError::WritingFailed))?;
 
         Ok(())
     }
