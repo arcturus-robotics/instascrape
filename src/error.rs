@@ -4,6 +4,7 @@ use std::{
     result::Result as StdResult,
 };
 
+/// An error that may occur while saving or loading configuration.
 #[derive(Debug, Copy, Clone)]
 pub enum ConfigError {
     OpeningFailed,
@@ -36,6 +37,7 @@ impl Display for ConfigError {
 
 impl StdError for ConfigError {}
 
+/// An error that may occur while parsing an Instagram page.
 #[derive(Debug, Copy, Clone)]
 pub enum ParseError {
     SelectorParsingFailed,
@@ -66,6 +68,7 @@ impl Display for ParseError {
 
 impl StdError for ParseError {}
 
+// An error that may occur while handling the output file.
 #[derive(Debug, Copy, Clone)]
 pub enum OutputError {
     OpeningFailed,
@@ -92,6 +95,7 @@ impl Display for OutputError {
 
 impl StdError for OutputError {}
 
+/// An error that may occur while requesting or parsing an Instragram page.
 #[derive(Debug, Copy, Clone)]
 pub enum DocumentError {
     RequestingFailed,
@@ -116,6 +120,7 @@ impl Display for DocumentError {
 
 impl StdError for DocumentError {}
 
+/// Any error that may occur while initializing or running the scraper.
 #[derive(Debug, Copy, Clone)]
 pub enum Error {
     Config(ConfigError),
