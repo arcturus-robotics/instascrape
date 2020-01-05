@@ -34,14 +34,14 @@ pub struct Data {
 
 /// An Instagram scraper.
 #[derive(Debug, Clone)]
-pub struct InstagramScraper {
+pub struct Scraper {
     client: Client,
 
     url: String,
     interval: Duration,
 }
 
-impl InstagramScraper {
+impl Scraper {
     /// Get the URL.
     pub fn url(&self) -> &str {
         &self.url
@@ -170,14 +170,14 @@ impl InstagramScraper {
     }
 }
 
-/// Helper for creating a scraper.
+/// Helper for creating an Instagram scraper.
 #[derive(Debug, Clone, Default)]
-pub struct InstagramScraperBuilder {
+pub struct ScraperBuilder {
     client: Option<Client>,
     config: Option<Config>,
 }
 
-impl InstagramScraperBuilder {
+impl ScraperBuilder {
     /// Initialize a new builder.
     pub fn new() -> Self {
         Default::default()
@@ -196,11 +196,11 @@ impl InstagramScraperBuilder {
     }
 
     /// Build the scraper.
-    pub fn build(&self) -> InstagramScraper {
+    pub fn build(&self) -> Scraper {
         let client = self.client.clone().unwrap();
         let config = self.config.clone().unwrap();
 
-        InstagramScraper {
+        Scraper {
             client,
             url: format!("https://www.instagram.com/{}/", config.user),
             interval: Duration::from_secs(config.interval),
@@ -215,9 +215,9 @@ async fn main() -> Result<()> {
 
     // Build the scraper.
     info!("initializing scraper...");
-    let scraper = InstagramScraperBuilder::new()
+    let scraper = ScraperBuilder::new()
         .client(Client::new())
-        .config(Config::load("./config.toml")?)
+        .config(Config::load("./config.toml").await?)
         .build();
 
     // Run the scraper.
