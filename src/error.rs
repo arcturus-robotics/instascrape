@@ -28,11 +28,13 @@ impl Display for ConfigError {
                 Self::WritingFailed => "failed to write configuration file",
                 Self::DeserializationFailed => "failed to deserialize configuration",
                 Self::SerializationFailed => "failed to serialize configuration",
-                _ => "oops! this shouldn't ever happen!",
+                _ => unreachable!(),
             }
         )
     }
 }
+
+impl StdError for ConfigError {}
 
 #[derive(Debug, Copy, Clone)]
 pub enum ParseError {
@@ -56,11 +58,13 @@ impl Display for ParseError {
                 Self::ContentAttributeNotFound => "failed to find content attribute",
                 Self::DataSourceNotFound => "failed to find data source",
                 Self::DataParsingFailed => "failed to parse data",
-                _ => "oops! this shouldn't ever happen!",
+                _ => unreachable!(),
             }
         )
     }
 }
+
+impl StdError for ParseError {}
 
 #[derive(Debug, Copy, Clone)]
 pub enum OutputError {
@@ -80,11 +84,13 @@ impl Display for OutputError {
                 Self::OpeningFailed => "failed to open output file",
                 Self::WritingFailed => "failed to write output file",
                 Self::FlushingFailed => "failed to flush output file",
-                _ => "oops! this shouldn't ever happen!",
+                _ => unreachable!(),
             }
         )
     }
 }
+
+impl StdError for OutputError {}
 
 #[derive(Debug, Copy, Clone)]
 pub enum DocumentError {
@@ -102,11 +108,13 @@ impl Display for DocumentError {
             match self {
                 Self::RequestingFailed => "failed to request document",
                 Self::ParsingFailed => "failed to parse document",
-                _ => "oops! this shouldn't ever happen!",
+                _ => unreachable!(),
             }
         )
     }
 }
+
+impl StdError for DocumentError {}
 
 #[derive(Debug, Copy, Clone)]
 pub enum Error {
@@ -128,12 +136,22 @@ impl Display for Error {
                 Self::Parse(error) => format!("{}", error),
                 Self::Output(error) => format!("{}", error),
                 Self::Document(error) => format!("{}", error),
-                _ => "oops! this shouldn't ever happen!".to_owned(),
+                _ => unreachable!(),
             }
         )
     }
 }
 
-impl StdError for Error {}
+impl StdError for Error {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        match self {
+            Self::Config(error) => Some(error),
+            Self::Parse(error) => Some(error),
+            Self::Output(error) => Some(error),
+            Self::Document(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 pub type Result<T> = StdResult<T, Error>;
