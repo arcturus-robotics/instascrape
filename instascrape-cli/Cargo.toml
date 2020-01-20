@@ -7,7 +7,7 @@ edition = "2018"
 homepage = "https://github.com/arcturus-robotics/instascrape"
 repository = "https://github.com/arcturus-robotics/instascrape"
 
-readme = "README.md"
+readme = "../README.md"
 license = "MIT"
 
 publish = false
@@ -15,6 +15,7 @@ publish = false
 [dependencies]
 env_logger = "0.7"
 log = "0.4"
+reqwest = { version = "0.10", features = ["json"] }
 chrono = "0.4"
 tokio = { version = "0.2", features = ["full"] }
 anyhow = "1.0"

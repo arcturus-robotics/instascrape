@@ -11,20 +11,28 @@ use anyhow::Result;
 use chrono::Utc;
 use instascrape::Scraper;
 use log::{error, info};
-use std::{path::PathBuf, time::Duration};
+use reqwest::Client;
+use std::{collections::HashMap, path::PathBuf, time::Duration};
 use structopt::StructOpt;
 use tokio::{fs::OpenOptions, prelude::*, time};
 
 #[derive(Debug, StructOpt)]
 struct Opt {
+    /// The Instagram user to scrape data from.
     #[structopt(short = "u", long = "user")]
     user: String,
 
+    /// The interval at which to scrape in seconds.
     #[structopt(short = "i", long = "interval", parse(try_from_str = parse_duration))]
     interval: Duration,
 
+    /// The path of the file to output data to.
     #[structopt(short = "o", long = "output", parse(from_os_str))]
     path: PathBuf,
+
+    /// A Discord webhook.
+    #[structopt(short = "w", long = "webhook")]
+    webhook: Option<String>,
 }
 
 fn parse_duration(src: &str) -> Result<Duration> {
@@ -40,18 +48,23 @@ async fn main() -> Result<()> {
     info!("initializing the scraper...");
     let opt = Opt::from_args();
 
-    // Run the scraper.
-    info!("running the scraper...");
-
+    // Initialize the scraper.
+    info!("initializing the scraper...");
     let scraper = Scraper::new(&opt.user);
+    let client = Client::builder()
+        .user_agent("DiscordBot (https://github.com/arcturus-robotics/instascrape, 0.1.0)")
+        .build()?;
 
     // Open the file in append mode. We don't want to overwrite the data that's already there!
+    info!("opening output file...");
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
         .open(opt.path)
         .await?;
 
+    // Run the scraper.
+    info!("running the scraper...");
     loop {
         // Scrape the data.
         match scraper.scrape().await {
@@ -61,8 +74,16 @@ async fn main() -> Result<()> {
                 let ser = format!("{},{}", Utc::now(), data.followers);
                 info!("{}", ser);
 
+                // If we have a Discord webhook URL, post the data to it.
+                if let Some(webhook) = &opt.webhook {
+                    let mut post = HashMap::new();
+                    post.insert("content", &ser);
+
+                    client.post(webhook).json(&post).send().await?;
+                }
+
                 // Write to the file.
-                let _ = file.write(format!("{}\n", ser).as_bytes()).await?;
+                let _ = file.write(format!("{}\n", &ser).as_bytes()).await?;
                 file.flush().await?;
             }
             // If not, log the error and don't do anything.
