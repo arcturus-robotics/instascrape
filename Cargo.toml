@@ -7,7 +7,7 @@ edition = "2018"
 homepage = "https://github.com/arcturus-robotics/instascrape"
 repository = "https://github.com/arcturus-robotics/instascrape"
 
-readme = "../README.md"
+readme = "README.md"
 license = "MIT"
 
 publish = false
