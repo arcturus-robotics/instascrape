@@ -1,6 +1,6 @@
 [package]
-name = "instascrape"
-version = "0.2.0"
+name = "instascrape-cli"
+version = "0.1.0"
 authors = ["jakbyte <jakbyte@gmail.com>"]
 edition = "2018"
 
@@ -13,7 +13,11 @@ license = "MIT"
 publish = false
 
 [dependencies]
-scraper = "0.11"
-reqwest = "0.10"
-serde = { version = "1", features = ["derive"] }
+env_logger = "0.7"
+log = "0.4"
+reqwest = { version = "0.10", features = ["json"] }
+chrono = "0.4"
+tokio = { version = "0.2", features = ["full"] }
 anyhow = "1.0"
+structopt = "0.3"
+instascrape = { path = ".." }

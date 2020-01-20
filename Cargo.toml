@@ -1,5 +1,27 @@
+[package]
+name = "instascrape"
+version = "0.2.0"
+authors = ["jakbyte <jakbyte@gmail.com>"]
+edition = "2018"
+
+homepage = "https://github.com/arcturus-robotics/instascrape"
+repository = "https://github.com/arcturus-robotics/instascrape"
+
+readme = "../README.md"
+license = "MIT"
+
+publish = false
+
+[dependencies]
+scraper = "0.11"
+reqwest = "0.10"
+serde = { version = "1", features = ["derive"] }
+anyhow = "1.0"
+
+[dev-dependencies]
+tokio = { version = "0.2", features = ["full"] }
+
 [workspace]
 members = [
-    "instascrape",
-    "instascrape-cli",
+    "cli",
 ]
