@@ -2,15 +2,21 @@
 
 An Instagram scraper created to help keep track of our Instagram followers.
 
-## Configuration
+## Usage
 
-Configuration is stored in a file named `config.toml`.
+```text
+instascrape-cli 0.1.0
 
-To keep track of our Instagram every 6 hours, for example, you would write the following:
+USAGE:
+    instascrape-cli [OPTIONS] --interval <interval> --output <path> --user <user>
 
-```toml
-# https://www.instagram.com/arcturusrobotics/
-user = "arcturusrobotics"
-# 21600 seconds = 6 hours
-interval = 21600
+FLAGS:
+    -h, --help       Prints help information
+    -V, --version    Prints version information
+
+OPTIONS:
+    -i, --interval <interval>    The interval at which to scrape in seconds
+    -o, --output <path>          The path of the file to output data to
+    -u, --user <user>            The Instagram user to scrape data from
+    -w, --webhook <webhook>      The Discord webhook to send messages to
 ```

@@ -30,7 +30,7 @@ struct Opt {
     #[structopt(short = "o", long = "output", parse(from_os_str))]
     path: PathBuf,
 
-    /// A Discord webhook.
+    /// The Discord webhook to send messages to.
     #[structopt(short = "w", long = "webhook")]
     webhook: Option<String>,
 }
