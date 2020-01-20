@@ -1,0 +1,22 @@
+[package]
+name = "instascrape-cli"
+version = "0.1.0"
+authors = ["jakbyte <jakbyte@gmail.com>"]
+edition = "2018"
+
+homepage = "https://github.com/arcturus-robotics/instascrape"
+repository = "https://github.com/arcturus-robotics/instascrape"
+
+readme = "README.md"
+license = "MIT"
+
+publish = false
+
+[dependencies]
+env_logger = "0.7"
+log = "0.4"
+chrono = "0.4"
+tokio = { version = "0.2", features = ["full"] }
+anyhow = "1.0"
+structopt = "0.3"
+instascrape = { path = "../instascrape" }
