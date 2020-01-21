@@ -38,7 +38,7 @@ impl Scraper {
     pub fn new(user: &str) -> Self {
         Self {
             client: Client::builder()
-                .user_agent("Instascrape (https://github.com/arcturus-robotics/instascrape, 0.2.0)")
+                .user_agent("Instascrape (https://github.com/arcturus-robotics/instascrape, 0.3.1)")
                 .build()
                 .expect("failed to create HTTP client"),
             user: String::from(user),
