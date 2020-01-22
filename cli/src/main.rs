@@ -12,8 +12,7 @@ use chrono::Utc;
 use instascrape::Scraper;
 use log::{error, info};
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs::File, io::Read, path::PathBuf, time::Duration};
+use std::{collections::HashMap, path::PathBuf, time::Duration};
 use structopt::StructOpt;
 use tokio::{fs::OpenOptions, prelude::*, time};
 
@@ -31,20 +30,13 @@ struct Opt {
     #[structopt(short = "o", long = "output", parse(from_os_str))]
     output: PathBuf,
 
-    /// A Discord webhook to send messages to.
-    #[structopt(short = "w", long = "webhook")]
-    webhook: Option<String>,
-
-    /// The path to a configuration file.
-    #[structopt(short = "c", long = "config", parse(try_from_str = parse_config))]
-    config: Option<Config>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Config {
-    user: String,
-    interval: Duration,
-    output: PathBuf,
+    /// The Discord webhook to send messages to.
+    #[structopt(
+        short = "w",
+        long = "webhook",
+        env = "INSTASCRAPE_WEBHOOK",
+        hide_env_values = true
+    )]
     webhook: Option<String>,
 }
 
@@ -52,35 +44,18 @@ fn parse_duration(src: &str) -> Result<Duration> {
     Ok(Duration::from_secs(src.parse::<u64>()?))
 }
 
-fn parse_config(src: &str) -> Result<Config> {
-    let mut file = File::open(src)?;
-    let mut buf = String::new();
-    file.read_to_string(&mut buf)?;
-
-    Ok(toml::from_str(&buf)?)
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize the logger.
     env_logger::init();
 
-    // Load the configuration.
-    info!("loading configuration...");
+    // Get options.
+    info!("initializing the scraper...");
     let opt = Opt::from_args();
-    let config = match opt.config {
-        Some(config) => config,
-        None => Config {
-            user: opt.user,
-            interval: opt.interval,
-            output: opt.output,
-            webhook: opt.webhook,
-        },
-    };
 
     // Initialize the scraper.
     info!("initializing the scraper...");
-    let scraper = Scraper::new(&config.user);
+    let scraper = Scraper::new(&opt.user);
     let client = Client::builder()
         .user_agent("DiscordBot (https://github.com/arcturus-robotics/instascrape, 0.1.0)")
         .build()?;
@@ -90,7 +65,7 @@ async fn main() -> Result<()> {
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
-        .open(config.output)
+        .open(opt.output)
         .await?;
 
     // Run the scraper.
@@ -105,7 +80,7 @@ async fn main() -> Result<()> {
                 info!("{}", ser);
 
                 // If we have a Discord webhook URL, post the data to it.
-                if let Some(webhook) = &config.webhook {
+                if let Some(webhook) = &opt.webhook {
                     let mut post = HashMap::new();
                     post.insert("content", &ser);
 
@@ -120,6 +95,6 @@ async fn main() -> Result<()> {
             Err(err) => error!("{}", err),
         };
 
-        time::delay_for(config.interval).await;
+        time::delay_for(opt.interval).await;
     }
 }

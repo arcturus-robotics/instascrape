@@ -20,6 +20,4 @@ chrono = "0.4"
 tokio = { version = "0.2", features = ["full"] }
 anyhow = "1.0"
 structopt = "0.3"
-serde = { version = "1", features = ["derive"] }
-toml = "0.5"
 instascrape = { path = ".." }
