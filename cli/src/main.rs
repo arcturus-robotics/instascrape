@@ -57,7 +57,7 @@ async fn main() -> Result<()> {
     info!("initializing the scraper...");
     let scraper = Scraper::new(&opt.user);
     let client = Client::builder()
-        .user_agent("DiscordBot (https://github.com/arcturus-robotics/instascrape, 0.1.0)")
+        .user_agent("DiscordBot (https://github.com/arcturus-robotics/instascrape, 0.1.1)")
         .build()?;
 
     // Open the file in append mode. We don't want to overwrite the data that's already there!
