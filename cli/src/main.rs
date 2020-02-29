@@ -49,12 +49,9 @@ async fn main() -> Result<()> {
     // Initialize the logger.
     env_logger::init();
 
-    // Get options.
-    info!("initializing the scraper...");
-    let opt = Opt::from_args();
-
     // Initialize the scraper.
     info!("initializing the scraper...");
+    let opt = Opt::from_args();
     let scraper = Scraper::new(&opt.user);
     let client = Client::builder()
         .user_agent("DiscordBot (https://github.com/arcturus-robotics/instascrape, 0.1.1)")
