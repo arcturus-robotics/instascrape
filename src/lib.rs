@@ -1,4 +1,4 @@
-//! An Instagram scraping library.
+//! An asynchronous and easy-to-use Instagram-scraping library.
 
 #![deny(
     rust_2018_idioms,
@@ -7,14 +7,24 @@
     missing_copy_implementations
 )]
 
-use anyhow::{anyhow, Result};
 use reqwest::Client;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 
-const SELECTOR: &str = r#"meta[property="og:description"]"#;
+mod error;
 
-/// Data scraped from a user's Instagram page.
+const SELECTOR: &str = r#"meta[property="og:description"]"#;
+const USER_AGENT: &str = concat!(
+    "Instascrape (",
+    env!("CARGO_PKG_HOMEPAGE"),
+    ", ",
+    env!("CARGO_PKG_VERSION"),
+    ")"
+);
+
+pub use self::error::{Error, Result};
+
+/// Data scraped from a user's Instagram profile.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default, Serialize, Deserialize)]
 pub struct Data {
     /// The amount of followers a user has.
@@ -28,24 +38,29 @@ pub struct Data {
 /// An Instagram scraper.
 #[derive(Debug, Clone)]
 pub struct Scraper {
-    /// The HTTP client the scraper can reuse.
+    /// The HTTP client the scraper will use to fetch the user's
+    /// Instagram profile.
     client: Client,
-    /// The user to scrape data from.
+    /// The user whose profile will be scraped.
     pub user: String,
 }
 
 impl Scraper {
-    pub fn new(user: &str) -> Self {
-        Self {
-            client: Client::builder()
-                .user_agent("Instascrape (https://github.com/arcturus-robotics/instascrape, 0.3.1)")
-                .build()
-                .expect("failed to create HTTP client"),
+    /// Create a new scraper.
+    ///
+    /// An error will be returned if the client fails to be created.
+    pub fn new(user: &str) -> Result<Self> {
+        Ok(Self {
+            client: if let Ok(client) = Client::builder().user_agent(USER_AGENT).build() {
+                client
+            } else {
+                return Err(Error::CreateClient);
+            },
             user: String::from(user),
-        }
+        })
     }
 
-    /// Scrape data from the URL.
+    /// Scrape data from the URL of the user's profile.
     pub async fn scrape(&self) -> Result<Data> {
         // Scrape the document.
         let document = self.document().await?;
@@ -53,29 +68,25 @@ impl Scraper {
         // Create a selector to find the description `meta` tag.
         let selector = match Selector::parse(SELECTOR) {
             Ok(selector) => selector,
-            Err(err) => {
-                return Err(anyhow!(
-                    "failed to parse selector `{}`: {:?}",
-                    SELECTOR,
-                    err
-                ))
+            Err(_) => {
+                return Err(Error::ParseSelector);
             }
         };
 
-        // Find the description `meta` tag with the selector.
-        let meta = match document.select(&selector).next() {
-            Some(meta) => meta,
+        // Find SEO tag with the selector.
+        let seo = match document.select(&selector).next() {
+            Some(seo) => seo,
             None => {
-                return Err(anyhow!("`meta` tag of selector `{}` not found", SELECTOR));
+                return Err(Error::FindSeo);
             }
         };
 
-        // Get the content of the description `meta` tag. It will look something like
-        // `100 Followers, 50 Following, 30 Posts - See Instagram photos and videos from Foo Bar (@foobar)`.
-        let content = match meta.value().attr("content") {
+        // Get the content of the SEO tag. It will look something like the following:
+        // "100 Followers, 50 Following, 30 Posts - See Instagram photos and videos from Foo Bar (@foobar)"
+        let content = match seo.value().attr("content") {
             Some(content) => content,
             None => {
-                return Err(anyhow!("`content` attribute not found in `meta` tag"));
+                return Err(Error::GetSeoContent);
             }
         }
         .trim();
@@ -85,34 +96,40 @@ impl Scraper {
         let source: Vec<u64> = match content.find('-') {
             // If the split is found, then strip, split, and parse.
             Some(index) => {
-                let src: Result<Vec<u64>> = content[..index]
+                let source: Result<Vec<u64>> = content[..index]
                     .split_terminator(',')
                     .map(|s| {
-                        let parsed = s
-                            .trim()
-                            .split_terminator(' ')
-                            .next()
-                            .unwrap()
-                            .parse::<u64>();
+                        let parsed = {
+                            let split = s.trim().split_terminator(' ').next();
+
+                            if let Some(split) = split {
+                                split.parse::<u64>()
+                            } else {
+                                return Err(Error::SplitSeoContent);
+                            }
+                        };
 
                         match parsed {
                             Ok(parsed) => Ok(parsed),
-                            Err(err) => Err(anyhow!(
-                                "failed to parse data in `content` attribute: {}",
-                                err
-                            )),
+                            Err(_) => Err(Error::ParseSeoData),
                         }
                     })
                     .collect();
-                src?
+                source?
             }
             // Otherwise, error.
             None => {
-                return Err(anyhow!("failed to find data in `content` attribute"));
+                return Err(Error::InvalidSeoContent);
             }
         };
 
-        // Construct `Data` out of these numbers.
+        // If the source appears to be invalid as its length is
+        // too short, error.
+        if source.len() < 3 {
+            return Err(Error::NotEnoughSeoData);
+        }
+
+        // Collect the data.
         Ok(Data {
             followers: source[0],
             following: source[1],
@@ -120,7 +137,7 @@ impl Scraper {
         })
     }
 
-    /// Scrape and parse the document at the URL.
+    /// Scrape and parse the document at the URL of the user's profile.
     async fn document(&self) -> Result<Html> {
         match self
             .client
@@ -130,21 +147,13 @@ impl Scraper {
         {
             Ok(request) => match request.text().await {
                 Ok(text) => Ok(Html::parse_document(&text)),
-                Err(err) => Err(anyhow!(
-                    "failed to parse user `{}`'s Instagram page: {}",
-                    self.user,
-                    err
-                )),
+                Err(_) => Err(Error::ParseProfile),
             },
-            Err(err) => Err(anyhow!(
-                "failed to request user `{}`'s Instagram page: {}",
-                self.user,
-                err
-            )),
+            Err(_) => Err(Error::GetProfile),
         }
     }
 }
 
 pub async fn scrape(user: &str) -> Result<Data> {
-    Scraper::new(user).scrape().await
+    Scraper::new(user)?.scrape().await
 }

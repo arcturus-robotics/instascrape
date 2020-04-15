@@ -13,11 +13,8 @@ license = "MIT"
 publish = false
 
 [dependencies]
-env_logger = "0.7"
-log = "0.4"
-reqwest = { version = "0.10", features = ["json"] }
 chrono = "0.4"
-tokio = { version = "0.2", features = ["full"] }
-anyhow = "1.0"
-structopt = "0.3"
 instascrape = { path = ".." }
+reqwest = { version = "0.10", features = ["json"] }
+structopt = "0.3"
+tokio = { version = "0.2", features = ["full"] }
