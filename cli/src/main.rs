@@ -113,7 +113,7 @@ async fn main() -> Result<()> {
 
                 // If we have a Discord webhook URL, post the data to it.
                 if let Some(webhook) = &opt.webhook {
-                    send_message_through_webhook(&client, webhook, &format!("```rust\n{}```", ser))
+                    send_message_through_webhook(&client, webhook, &format!("```rs\n{}```", ser))
                         .await?;
                 }
 
