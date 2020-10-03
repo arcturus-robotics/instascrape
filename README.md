@@ -1,5 +1,7 @@
 # Instascrape
 
+**WARNING: You really shouldn't use this!**
+
 An Instagram scraper created to help keep track of our Instagram followers.
 
 ## Usage
